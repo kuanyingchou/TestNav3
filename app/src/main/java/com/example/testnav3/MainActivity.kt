@@ -51,91 +51,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // TestAny()
-            //TestMyConverter()
-            TopNav()
-            //TestMySerializer()
+            TestAny()
         }
     }
 }
-
-@Composable
-fun TestMySerializer() {
-    val backStack = rememberSaveable(
-        saver = Saver(
-            save = { state ->
-                encodeToSavedState(snapshotStateListSerializer(), EmptySerializersModule(), state)
-            },
-            restore = { value ->
-                decodeFromSavedState(snapshotStateListSerializer(), EmptySerializersModule(), value)
-            }
-        )
-    ) {
-        mutableStateListOf("A")
-    }
-
-    val manager = rememberNavWrapperManager(emptyList())
-
-    MyNavDisplay(
-        backstack = backStack,
-        wrapperManager = manager,
-        onBack = {
-            backStack.removeAt(backStack.size - 1)
-        }
-    ) {
-        record("A") {
-            Column {
-                Text("A")
-                Button(onClick = { backStack.add("B") }) {
-                    Text("Goto B")
-                }
-            }
-        }
-        record("B") { Text("B") }
-    }
-}
-
-//interface Destination
-//@Composable
-//fun TestMyConverter() {
-//
-//    @Serializable
-//    class Home: Destination
-//
-//    @Serializable
-//    class Details: Destination
-//
-//    val module = SerializersModule {
-//        polymorphic(Destination::class) {
-//            subclass(Home::class)
-//            subclass(Details::class)
-//        }
-//    }
-//    val backStack = rememberSaveable(
-//        saver = serializableSaver<SnapshotStateList<Any>, List<Any>>(
-//            module,
-//            toSerializable = { toList() },
-//            fromSerializable = { toMutableStateList() }
-//        )
-//    ) {
-//        mutableStateListOf<Any>(Home)
-//    }
-//
-//    val manager = rememberNavWrapperManager(listOf(ViewModelStoreNavContentWrapper))
-//
-//    MyNavDisplay(
-//        backstack = backStack,
-//        wrapperManager = manager,
-//        onBack = {
-//            Log.d("gyz", "onback called")
-//            backStack.removeAt(backStack.size - 1)
-//        }
-//    ) {
-//        record(Home) { Home { backStack.add(it) } }
-//        record(Details) { Details("a") }
-//        record("foo") { Details("b") }
-//    }
-//}
 
 @Serializable
 object Home
@@ -144,7 +63,7 @@ object Home
 object Details
 
 @Composable
-fun TestAnyWithSnapshotStateListSaver() {
+fun TestAny() {
     val module = SerializersModule {
         polymorphic(Any::class) {
             subclass(Home::class)
@@ -153,138 +72,27 @@ fun TestAnyWithSnapshotStateListSaver() {
         }
     }
 
-    val serializer = serializer(
-        kClass = MutableList::class,
-        typeArgumentsSerializers = listOf(PolymorphicSerializer(Any::class)),
-        isNullable = false
-    )
-
     val backStack = rememberSaveable(saver = snapshotStateListSaver(
         listSaver = listSaver(
-            save = { list -> list.map { encodeToSavedState(it) } },
-            restore = { list -> list.map { decodeFromSavedState(it) } }
+            save = { it.map { encodeToSavedState(PolymorphicSerializer(Any::class), module, it) } },
+            restore = { it.map { decodeFromSavedState(PolymorphicSerializer(Any::class), module, it) } }
         )
     )) {
         mutableStateListOf<Any>(Home)
     }
 
-    val manager = rememberNavWrapperManager(listOf(ViewModelStoreNavContentWrapper))
+    val manager = rememberNavWrapperManager(emptyList())
 
-    MyNavDisplay(
+    NavDisplay(
         backstack = backStack,
         wrapperManager = manager,
-        onBack = { backStack.removeAt(backStack.size - 1) }
-    ) {
-        record(Home) { Home { backStack.add(it) } }
-        record(Details) { Details("a") }
-        record("foo") { Details("b") }
-    }
-}
-
-inline fun <reified T> snapshotStateListSerializer(): KSerializer<SnapshotStateList<T>> {
-    return object: KSerializer<SnapshotStateList<T>> {
-        private val delegateSerializer = serializer<MutableList<T>>()
-
-        override val descriptor: SerialDescriptor = SerialDescriptor("SnapshotStateListSerializer", delegateSerializer.descriptor)
-
-        override fun serialize(encoder: Encoder, value: SnapshotStateList<T>) {
-            encoder.encodeSerializableValue(delegateSerializer, value)
+        onBack = { backStack.removeAt(backStack.size - 1) },
+        recordProvider = recordProvider {
+            record(Home) { Home { backStack.add(it) } }
+            record(Details) { Details("A") }
+            record("foo") { Details("B") }
         }
-
-        override fun deserialize(decoder: Decoder): SnapshotStateList<T> {
-            val restored = decoder.decodeSerializableValue(delegateSerializer)
-            return restored.toMutableStateList()
-        }
-    }
-}
-
-class MyViewModel(handle: SavedStateHandle): ViewModel() {
-    init {
-        Log.d("gyz", "vm init")
-    }
-    val backStack by handle.saved(serializer = snapshotStateListSerializer<String>()) {
-        Log.d("gyz", "init")
-        mutableStateListOf("A")
-    }
-
-    val backStackA = mutableListOf("A")
-
-    val backStackB = mutableListOf("B")
-
-    val manager = NavWrapperManager(listOf(ViewModelStoreNavContentWrapper))
-
-    fun goto(destination: String) {
-        Log.d("gyz", "backstack: ${backStack::class}")
-        when (destination) {
-            "A" -> {
-                backStack.clear()
-                backStack.addAll(backStackA)
-            }
-            "B" -> {
-                backStack.clear()
-                backStack.addAll(backStackB)
-            }
-        }
-    }
-
-    fun goBack() {
-        backStack.removeAt(backStack.size - 1)
-    }
-}
-
-class ViewModelA(handle: SavedStateHandle): ViewModel()
-
-class ViewModelB(handle: SavedStateHandle): ViewModel()
-
-@Composable
-fun TopNav() {
-    val vm = viewModel<MyViewModel>()
-    Column {
-        Row {
-            Button(onClick = { vm.goto("A") }) {
-                Text("A")
-            }
-            Button(onClick = { vm.goto("B") }) {
-                Text("B")
-            }
-        }
-        Box(
-            Modifier
-                .padding(10.dp)
-                .border(BorderStroke(10.dp, Color.Blue))) {
-            NavDisplay(
-                backstack = vm.backStack,
-                wrapperManager = vm.manager,
-                onBack = { vm.goBack() },
-                recordProvider = recordProvider {
-                    record("A") {
-
-                    }
-                    record("B") {
-                        Column {
-                            Text("B")
-                            Button(onClick = { vm.goto("B.A") }) {
-                                Text("B.A")
-                            }
-                            Button(onClick = { vm.goto("B.B") }) {
-                                Text("B.B")
-                            }
-                        }
-                    }
-                    record("A.A") {
-                        Column {
-                            Text("A.A")
-                        }
-                    }
-                    record("A.B") {
-                        Column {
-                            Text("A.B")
-                        }
-                    }
-                }
-            )
-        }
-    }
+    )
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -303,47 +111,12 @@ fun <T> snapshotStateListSaver(
         )
     }
 
-
-inline fun <reified NonSerializable: Any, reified Serializable: Any> serializableSaver(
-    module: SerializersModule,
-    crossinline toSerializable: NonSerializable.() -> Serializable,
-    crossinline fromSerializable: Serializable.() -> NonSerializable
-): Saver<NonSerializable, SavedState> {
-    return Saver(
-        save = { encodeToSavedState(serializer(), module, it.toSerializable()).also { Log.d("gyz", it.toString()) } },
-        restore = { decodeFromSavedState<Serializable>(serializer(), module, it).fromSerializable() }
-    )
-}
-
-//inline fun <reified T> serializableSaver(): Saver<SnapshotStateList<T>, SavedState> =
-//    Saver(
-//        save = { encodeToSavedState(it.toList()) },
-//        restore = { decodeFromSavedState<List<T>>(it).toMutableStateList() }
-//    )
-
-@Composable
-fun <T : Any> MyNavDisplay(
-    backstack: List<T>,
-    wrapperManager: NavWrapperManager,
-    modifier: Modifier = Modifier,
-    onBack: () -> Unit = {},
-    builder: RecordProviderBuilder.() -> Unit
-) {
-    return NavDisplay(
-        backstack = backstack,
-        wrapperManager = wrapperManager,
-        modifier = modifier,
-        onBack = onBack,
-        recordProvider = recordProvider(builder = builder)
-    )
-}
-
 @Composable
 fun Home(goto: (Any) -> Unit) {
     Column {
         Text("Home Screen")
-        Button(onClick = { goto(Details) }) { Text("A") }
-        Button(onClick = { goto("foo") }) { Text("B") }
+        Button(onClick = { goto(Details) }) { Text("Go to A") }
+        Button(onClick = { goto("foo") }) { Text("Go to B") }
     }
 }
 
